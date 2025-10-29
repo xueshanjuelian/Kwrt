@@ -2,6 +2,7 @@
 #=================================================
 shopt -s extglob
 
+sed -i 'src-git MTKi https://github.com/bricco1981/mt7621-mtk7915.git;main' feeds.conf.default
 sed -i '$a src-git kiddin9 https://github.com/kiddin9/kwrt-packages.git;main' feeds.conf.default
 sed -i "/telephony/d" feeds.conf.default
 
