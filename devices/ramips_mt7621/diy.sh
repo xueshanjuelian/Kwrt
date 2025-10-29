@@ -11,3 +11,4 @@ sed -i "s/DEVICE_MODEL := HC5962$/DEVICE_MODEL := HC5962 \/ B70/" target/linux/r
 sed -i '/# start dockerd/,/# end dockerd/d' .config
 
 sed -i "s/--max-leb-cnt=96/--max-leb-cnt=128/g" target/linux/ramips/image/mt7621.mk
+sed -i 'src-git MTKi https://github.com/bricco1981/mt7621-mtk7915.git;main' feeds.conf.default
