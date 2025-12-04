@@ -58,40 +58,42 @@
 	};
 };
 
-&nand {
+&spi0 {
 	status = "okay";
 
-	partitions {
-		compatible = "fixed-partitions";
-		#address-cells = <1>;
-		#size-cells = <1>;
+	flash@0 {
+		compatible = "jedec,spi-nor";
+		reg = <0>;
+		spi-max-frequency = <25000000>;
 
-		partition@0 {
-			label = "u-boot";
-			reg = <0x0 0x80000>;
-			read-only;
-		};
+		partitions {
+			compatible = "fixed-partitions";
+			#address-cells = <1>;
+			#size-cells = <1>;
 
-		partition@80000 {
-			label = "u-boot-env";
-			reg = <0x80000 0x80000>;
-			read-only;
-		};
+			partition@0 {
+				label = "u-boot";
+				reg = <0x0 0x30000>;
+				read-only;
+			};
 
-		factory: partition@100000 {
-			label = "factory";
-			reg = <0x100000 0x40000>;
-			read-only;
-		};
+			partition@30000 {
+				label = "u-boot-env";
+				reg = <0x30000 0x10000>;
+				read-only;
+			};
 
-		partition@140000 {
-			label = "kernel";
-			reg = <0x140000 0x400000>;
-		};
+			factory: partition@40000 {
+				label = "factory";
+				reg = <0x40000 0x10000>;
+				read-only;
+			};
 
-		partition@540000 {
-			label = "ubi";
-			reg = <0x540000 0x7a40000>;
+			partition@50000 {
+				compatible = "denx,uimage";
+				label = "firmware";
+				reg = <0x50000 0x7fb0000>;
+			};
 		};
 	};
 };
