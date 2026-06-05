@@ -3,6 +3,8 @@
 shopt -s extglob
 
 sed -i '$a src-git kiddin9 https://github.com/kiddin9/kwrt-packages.git;main' feeds.conf.default
+sed -i '$a src-git lucii https://github.com/openwrt/luci.git;openwrt-24.10' feeds.conf.default
+sed -i '$a src-git wwann https://github.com/immortalwrt/wwan-packages.git' feeds.conf.default
 sed -i "/telephony/d" feeds.conf.default
 
 sed -i "s?targets/%S/packages?targets/%S/\$(LINUX_VERSION)?" include/feeds.mk
