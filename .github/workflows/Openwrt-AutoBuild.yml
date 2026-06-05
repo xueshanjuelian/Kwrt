@@ -286,12 +286,12 @@ jobs:
         # 寻找驱动源码中的 qmi_wwan_f.c 文件（防止路径发生变动）
         TARGET_FILE=$(find feeds/kiddin9/ -name "qmi_wwan_f.c" 2>/dev/null | head -n 1)
         if [ -n "$TARGET_FILE" ] && [ -f "$TARGET_FILE" ]; then
-        echo "Found target file at: $TARGET_FILE"
-        # 将老的 strlcpy 替换为内核 6.12 兼容的 strscpy
-        sed -i 's/strlcpy/strscpy/g' "$TARGET_FILE"
-        echo "Successfully patched strlcpy to strscpy."
+          echo "Found target file at: $TARGET_FILE"
+          # 将老的 strlcpy 替换为内核 6.12 兼容的 strscpy
+          sed -i 's/strlcpy/strscpy/g' "$TARGET_FILE"
+          echo "Successfully patched strlcpy to strscpy."
         else
-        echo "Warning: qmi_wwan_f.c not found, checking build_dir..."
+          echo "Warning: qmi_wwan_f.c not found, checking build_dir..."
         fi
 
     - name: Compile the firmware
