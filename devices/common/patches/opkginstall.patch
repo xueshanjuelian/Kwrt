@@ -13,8 +13,8 @@
  			const avail = packages.available.pkgs[name];
  			const inst  = packages.installed.pkgs[name];
  
--			if (!inst || !inst.installed)
-+			if (!inst || !inst.installed || pkg.name.includes('kmod-') || pkg.name.includes('busybox') || pkg.name.includes('base-files'))
+-			if (!isPkgInstalled(inst))
++			if (!isPkgInstalled(inst) || pkg.name.includes('busybox') || pkg.name.includes('base-files'))
  				continue;
  
  			if (!avail || compareVersion(avail.version, pkg.version) <= 0)
@@ -22,8 +22,8 @@
  					'data-action': 'install',
  					'click': handleInstall
  				}, _('Install…'));
--			else if (inst.installed && inst.version != pkg.version)
-+			else if (inst.installed && compareVersion(pkg.version, inst.version) > 0)
+-			else if (isPkgInstalled(inst) && inst.version !== pkg.version)
++			else if (isPkgInstalled(inst) && compareVersion(pkg.version, inst.version) > 0)
  				btn = E('div', {
  					'class': 'btn cbi-button-positive',
  					'data-package': name,
@@ -73,7 +73,7 @@
 +
 +                if (stat) {
 +                    const currentDate = new Date();
-+                    const lastUpdateDate = new Date(stat.mtime * 1000);  // Convert seconds to milliseconds
++                    const lastUpdateDate = new Date(stat.ctime * 1000);  // Convert seconds to milliseconds
 +                    // 检查是否在今天的零点之后更新过
 +                    const today = new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate());
 +                    needUpdate = lastUpdateDate < today;

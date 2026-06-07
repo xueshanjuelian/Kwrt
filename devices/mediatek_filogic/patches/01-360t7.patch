@@ -441,10 +441,10 @@
  define Device/yuncore_ax835
    DEVICE_VENDOR := YunCore
    DEVICE_MODEL := AX835
-@@ -3269,3 +3220,237 @@ define Device/zyxel_nwa50ax-pro
-   IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
+@@ -3269,3 +3220,237 @@ define Device/zyxel_wx5600-t0-ubootmod
+ endif
  endef
- TARGET_DEVICES += zyxel_nwa50ax-pro
+ TARGET_DEVICES += zyxel_wx5600-t0-ubootmod
 +
 +define Device/philips_hy3000
 +  DEVICE_VENDOR := Philips

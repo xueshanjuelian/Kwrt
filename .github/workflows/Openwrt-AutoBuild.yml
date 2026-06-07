@@ -141,14 +141,6 @@ jobs:
             fi
         fi
 
-    - name: Free up disk space
-      env:
-        DEBIAN_FRONTEND: noninteractive
-      run: |
-        sudo mkdir -p -m 777 /mnt/openwrt/build_dir openwrt/staging_dir
-        ln -sf /mnt/openwrt/build_dir openwrt/build_dir
-        sudo ln -sf openwrt/staging_dir /mnt/openwrt/staging_dir
-
     - name: Load custom configuration
       run: |
         function git_clone_path() {
@@ -175,6 +167,7 @@ jobs:
           cd $rootdir
           }
         export -f git_clone_path
+        mkdir -p openwrt
         cp -rf devices/common/. openwrt/
         cp -rf devices/${{matrix.target}}/. openwrt/
         cp -rf devices openwrt/
@@ -259,7 +252,7 @@ jobs:
         SOURCE: openwrt/bin/targets
         REMOTE_HOST: ${{ secrets.SERVER_HOST }}
         REMOTE_USER: ${{ secrets.SERVER_USERNAME }}
-        REMOTE_PORT: ${{ secrets.SERVER_PORT }}
+        REMOTE_PORT: 22
         TARGET: "/www/wwwroot/dl.openwrt.ai/releases/tmp/"
 
     - name: Upload firmware for artifact

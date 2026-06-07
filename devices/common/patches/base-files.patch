@@ -29,7 +29,7 @@
 
 --- a/package/base-files/files/sbin/sysupgrade
 +++ b/package/base-files/files/sbin/sysupgrade
-@@ -287,11 +287,7 @@ create_backup_archive() {
+@@ -296,11 +296,7 @@ create_backup_archive() {
  				# Format: pkg-name<TAB>{rom,overlay,unknown}
  				# rom is used for pkgs in /rom, even if updated later
  				if [ -d "/usr/lib/opkg/info" ]; then
@@ -42,9 +42,9 @@
  				elif [ -d "/lib/apk/packages" ]; then
  					tar_print_member "$INSTALLED_PACKAGES" "$(find /lib/apk/packages -name "*.list" \( \
  						\( -exec test -f /rom/{} \; -exec echo {} rom \; \) -o \
-@@ -299,6 +295,10 @@ create_backup_archive() {
- 						\( -exec echo {} unknown \; \) \
- 						\) | sed -e 's,.*/,,;s/\.list /\t/')" || ret=1
+@@ -311,6 +307,10 @@ create_backup_archive() {
+ 					echo "Failed to detect installed packages metadata files." >&2
+ 					ret=1
  				fi
 +			else
 +				uci -q del opkg.auto
