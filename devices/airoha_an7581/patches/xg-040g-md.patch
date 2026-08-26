@@ -19,7 +19,7 @@
 +  IMAGE_SIZE := 261120k
 +  KERNEL_IN_UBI := 1
 +  UBINIZE_OPTS := -m 2048 -p 128KiB -s 2048
-+  DEVICE_PACKAGES := airoha-en7581-npu-firmware kmod-phy-airoha-en8811h kmod-i2c-an7581 kmod-input-gpio-keys-polled
++  DEVICE_PACKAGES := kmod-gpio-button-hotplug kmod-leds-gpio kmod-phy-airoha-en8811h kmod-regulator-userspace-consumer kmod-usb-ledtrig-usbport kmod-usb3
 +  IMAGES += factory.bin sysupgrade.bin
 +  IMAGE/factory.bin := append-kernel | pad-to $$$$(KERNEL_SIZE) | append-ubi
 +  IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
