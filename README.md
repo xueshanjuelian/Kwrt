@@ -8,19 +8,19 @@
 
 #### 自建在线插件仓库 [dl.openwrt.ai](https://dl.openwrt.ai), 额外收录三方插件1000+, 插件库日更
 
-### TG群: [Kwrt交流群](https://t.me/opkwrt)
+##### TG群: [Kwrt交流群](https://t.me/opkwrt)
 
-<img src="assets/p1.png" alt="" width="600">
+<img src="assets/p1.png" alt="" width="800">
 
-<img src="assets/p2.png" alt="" width="600">
+<img src="assets/p2.png" alt="" width="800">
 
-<img src="assets/p3.png" alt="" width="600">
+<img src="assets/p3.png" alt="" width="800">
 
-<img src="assets/p4.png" alt="" width="600">
+<img src="assets/p4.png" alt="" width="800">
 
-<img src="assets/p5.png" alt="" width="600">
+<img src="assets/p5.png" alt="" width="800">
 
-<img src="assets/p6.png" alt="" width="600">
+<img src="assets/p6.png" alt="" width="800">
 
 ## Acknowledgments
 
