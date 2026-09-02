@@ -225,8 +225,8 @@ jobs:
     - name: SSH connection to Actions
       uses: mxschmitt/action-tmate@v3
       if: env.SSH_ACTIONS == 'true' || contains(github.event.action, 'ssh')
-      with:
-        limit-access-to-actor: false
+        with:
+          limit-access-to-actor: false
 
     - name: Compile the firmware
       id: compile
