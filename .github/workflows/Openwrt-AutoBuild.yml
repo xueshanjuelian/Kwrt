@@ -222,17 +222,22 @@ jobs:
         clean: ${{ contains(github.event.action, 'nocache') }}
         prefix: ${{ github.workspace }}/openwrt
         
-    - name: SSH connection to Actions (Manual Force)
+    - name: SSH connection to Actions (Manual Force Fixed)
       run: |
         sudo apt-get update && sudo apt-get install -y tmate
+        # 启动并给服务器 10 秒时间完成握手
         tmate -S /tmp/tmate.sock new-session -d
-        tmate -S /tmp/tmate.sock wait tmate-ready
+        sleep 10
+          
         echo "==== 你的网页连接地址在下方 ===="
         tmate -S /tmp/tmate.sock display -p '#{tmate_web}'
         echo "==== 你的 SSH 连接命令在下方 ===="
         tmate -S /tmp/tmate.sock display -p '#{tmate_ssh}'
+          
+        # 保持会话存活
         while [ -e /tmp/tmate.sock ]; do sleep 5; done
       if: env.SSH_ACTIONS == 'true' || contains(github.event.action, 'ssh')
+
 
     - name: Compile the firmware
       id: compile
