@@ -222,40 +222,31 @@ jobs:
         clean: ${{ contains(github.event.action, 'nocache') }}
         prefix: ${{ github.workspace }}/openwrt
         
-    - name: SSH connection to Actions (Ultimate Absolute Fix)
-      env:
-        DEBIAN_FRONTEND: noninteractive
+    - name: Native SSH Bypass (Never Fails)
       run: |
-        # 1. 彻底禁用 Ubuntu 24.04 的服务重启交互拦截
-        sudo sed -i 's/#\$nrconf{restart} = .*/\$nrconf{restart} = "a";/' /etc/needrestart/needrestart.conf || true
+        # 1. 给当前打包机生成一个硬核远程连接密码
+        echo "runneradmin:OpenWrt666" | sudo chpasswd
           
-        # 2. 安装 tmate 并屏蔽所有系统提示
-        sudo apt-get update -y
-        sudo apt-get install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" tmate
+        # 2. 允许 SSH 密码登录并重启服务
+        sudo sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/g' /etc/ssh/sshd_config
+        sudo systemctl restart ssh
           
-        # 3. 启动 tmate 会话
-        tmate -S /tmp/tmate.sock new-session -d
-        tmate -S /tmp/tmate.sock wait tmate-ready
+        # 3. 使用公共的 localhost.run 建立隧道（完全不需要注册和配置，秒连）
+        echo "=== 正在建立原生反向通道 ==="
+        ssh -R 80:localhost:22 nokey@localhost.run 2>&1 | tee /tmp/tunnel.log &
           
-        # 4. 强制等待 5 秒，确保官方服务器分配好域名
-        sleep 5
-          
-        # 5. 提取连接地址
-        WEB_URL=$(tmate -S /tmp/tmate.sock display -p '#{tmate_web}')
-        SSH_CMD=$(tmate -S /tmp/tmate.sock display -p '#{tmate_ssh}')
-          
-        # 6. 【核心】不仅在日志打印，还把它强行注入到 GitHub Actions 步骤的大标题上！
-        echo "::notice title=tmate 网页端直连链接::$WEB_URL"
-        echo "::notice title=tmate SSH 命令行::$SSH_CMD"
-          
+        # 4. 等待隧道建立并把连接地址打印出来
+        sleep 10
         echo "=========================================================="
-        echo "👉 WEB URL: $WEB_URL"
-        echo "👉 SSH COMMAND: $SSH_CMD"
+        cat /tmp/tunnel.log | grep "tunneled with"
+        echo "👉 上面那行就是你的连接域名"
+        echo "👉 登录用户名: runneradmin"
+        echo "👉 登录密码: OpenWrt666"
         echo "=========================================================="
           
-        # 7. 保持挂起，防止打包机自动退出
-        while [ -e /tmp/tmate.sock ]; do sleep 5; done
-      if: env.SSH_ACTIONS == 'true' || contains(github.event.action, 'ssh')
+        # 5. 防止退出
+        while true; do sleep 5; done
+
 
     - name: Compile the firmware
       id: compile
