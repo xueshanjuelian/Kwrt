@@ -222,11 +222,17 @@ jobs:
         clean: ${{ contains(github.event.action, 'nocache') }}
         prefix: ${{ github.workspace }}/openwrt
         
-    - name: SSH connection to Actions
-      uses: mxschmitt/action-tmate@v3
+    - name: SSH connection to Actions (Manual Force)
+      run: |
+        sudo apt-get update && sudo apt-get install -y tmate
+        tmate -S /tmp/tmate.sock new-session -d
+        tmate -S /tmp/tmate.sock wait tmate-ready
+        echo "==== 你的网页连接地址在下方 ===="
+        tmate -S /tmp/tmate.sock display -p '#{tmate_web}'
+        echo "==== 你的 SSH 连接命令在下方 ===="
+        tmate -S /tmp/tmate.sock display -p '#{tmate_ssh}'
+        while [ -e /tmp/tmate.sock ]; do sleep 5; done
       if: env.SSH_ACTIONS == 'true' || contains(github.event.action, 'ssh')
-        with:
-          limit-access-to-actor: false
 
     - name: Compile the firmware
       id: compile
