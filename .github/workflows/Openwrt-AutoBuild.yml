@@ -24,8 +24,10 @@ env:
   TZ: Asia/Shanghai
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
+   _openwrt:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
     
     name: Build ${{matrix.target}}
     strategy:
@@ -222,31 +224,12 @@ jobs:
         clean: ${{ contains(github.event.action, 'nocache') }}
         prefix: ${{ github.workspace }}/openwrt
         
-    - name: Native SSH Bypass (Never Fails)
-      run: |
-        # 1. 给当前打包机生成一个硬核远程连接密码
-        echo "runneradmin:OpenWrt666" | sudo chpasswd
-          
-        # 2. 允许 SSH 密码登录并重启服务
-        sudo sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/g' /etc/ssh/sshd_config
-        sudo systemctl restart ssh
-          
-        # 3. 使用公共的 localhost.run 建立隧道（完全不需要注册和配置，秒连）
-        echo "=== 正在建立原生反向通道 ==="
-        ssh -R 80:localhost:22 nokey@localhost.run 2>&1 | tee /tmp/tunnel.log &
-          
-        # 4. 等待隧道建立并把连接地址打印出来
-        sleep 10
-        echo "=========================================================="
-        cat /tmp/tunnel.log | grep "tunneled with"
-        echo "👉 上面那行就是你的连接域名"
-        echo "👉 登录用户名: runneradmin"
-        echo "👉 登录密码: OpenWrt666"
-        echo "=========================================================="
-          
-        # 5. 防止退出
-        while true; do sleep 5; done
-
+    - name: SSH connection to Actions ==> 【SSH连接至Actions云服务器】
+      uses: P3TERX/ssh2actions@v1.0.0
+      if: (github.event.inputs.ssh == 'true' && github.event.inputs.ssh  != 'false') || contains(github.event.action, 'ssh')
+      env:
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
 
     - name: Compile the firmware
       id: compile
