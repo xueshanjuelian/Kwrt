@@ -263,13 +263,134 @@ jobs:
     # ===== SSH 断点 1/2：Compile the firmware 之前 =====
     - name: SSH 在线查看（Compile the firmware 之前）
       if: ${{ inputs.ssh_before_compile || contains(github.event.action || '', 'sshpre') || (contains(github.event.action || '', 'ssh') && !contains(github.event.action || '', 'sshpost')) }}
-      uses: ./.github/actions/ssh-gate
       timeout-minutes: 150
-      with:
-        label: '编译前：源码/feeds/.config 已就绪，make 尚未开始'
-        timeout-minutes: ${{ inputs.ssh_timeout || '60' }}
-        ssh-password: ${{ secrets.SSH_PASSWORD }}
-        ngrok-authtoken: ${{ secrets.NGROK_AUTHTOKEN }}
+      env:
+        GATE_LABEL: '编译前：源码/feeds/.config 已就绪，make 尚未开始'
+        GATE_TIMEOUT: ${{ inputs.ssh_timeout || '60' }}
+        GATE_PASSWORD: ${{ secrets.SSH_PASSWORD }}
+        NGROK_AUTHTOKEN: ${{ secrets.NGROK_AUTHTOKEN }}
+      run: |
+        # 关掉 -e：下面的探测逻辑靠空值判断，不能让某条命令的非零退出码掀桌子
+        set +eu
+        LABEL="${GATE_LABEL:-SSH 断点}"
+        TIMEOUT_MIN="${GATE_TIMEOUT:-60}"
+        case "$TIMEOUT_MIN" in ''|*[!0-9]*) TIMEOUT_MIN=60 ;; esac
+
+        echo "=========== SSH 断点：${LABEL} ==========="
+
+        PASS="${GATE_PASSWORD}"
+        if [ -z "$PASS" ]; then
+          PASS="$(tr -dc 'A-Za-z0-9' </dev/urandom 2>/dev/null | head -c 12)"
+          [ -n "$PASS" ] || PASS="kwrt$RANDOM$RANDOM"
+        fi
+
+        # 1) 启动 sshd
+        command -v sshd >/dev/null 2>&1 || {
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq openssh-server
+        }
+        echo "runner:${PASS}" | sudo chpasswd
+        sudo sed -i \
+          -e 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' \
+          -e 's/^#\?KbdInteractiveAuthentication.*/KbdInteractiveAuthentication yes/' \
+          -e 's/^#\?UsePAM.*/UsePAM yes/' \
+          -e 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
+        # 镜像自带的 sshd_config.d/*.conf 里可能写着 PasswordAuthentication no；
+        # sshd 对同一项取「先读到的值」，用 00- 前缀的 drop-in 顶到最前面
+        sudo mkdir -p /etc/ssh/sshd_config.d
+        printf '%s\n' \
+          'PasswordAuthentication yes' \
+          'KbdInteractiveAuthentication yes' \
+          'UsePAM yes' \
+          'PermitRootLogin yes' \
+          | sudo tee /etc/ssh/sshd_config.d/00-ssh-gate.conf >/dev/null
+        echo 'runner ALL=(ALL) NOPASSWD:ALL' | sudo tee /etc/sudoers.d/90-ssh-gate >/dev/null
+        sudo chmod 440 /etc/sudoers.d/90-ssh-gate
+        sudo systemctl restart ssh 2>/dev/null || sudo service ssh restart
+        sleep 2
+        if ! (ss -ltn 2>/dev/null || netstat -ltn 2>/dev/null) | grep -q ':22 '; then
+          echo "::error::sshd 没有监听 22 端口"
+          exit 1
+        fi
+
+        # 2) 打隧道：有 NGROK_AUTHTOKEN 走 ngrok，否则退回免注册的 bore.pub
+        HOST=""
+        PORT=""
+        if [ -n "${NGROK_AUTHTOKEN}" ]; then
+          echo "隧道：ngrok tcp 22"
+          if curl -fsSL -o /tmp/ngrok.tgz "https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz"; then
+            sudo tar -xzf /tmp/ngrok.tgz -C /usr/local/bin
+            ngrok config add-authtoken "${NGROK_AUTHTOKEN}" >/dev/null 2>&1
+            nohup ngrok tcp 22 --log=stdout --log-format=logfmt >/tmp/ngrok.log 2>&1 &
+            for _ in $(seq 1 40); do
+              URL="$(grep -oE 'url=tcp://[^ ]+' /tmp/ngrok.log 2>/dev/null | head -1 | sed 's/^url=//')"
+              if [ -n "$URL" ]; then break; fi
+              sleep 1
+            done
+            if [ -n "${URL:-}" ]; then
+              HOST="${URL#tcp://}"; HOST="${HOST%%:*}"; PORT="${URL##*:}"
+            fi
+          else
+            echo "::warning::ngrok 下载失败，改用 bore.pub"
+          fi
+        fi
+
+        if [ -z "$PORT" ]; then
+          echo "隧道：bore.pub"
+          BURL="$(curl -fsSL https://api.github.com/repos/ekzhang/bore/releases/latest | grep -oE 'https://[^"]+x86_64-unknown-linux-musl\.tar\.gz' | head -1)"
+          if [ -n "$BURL" ] && curl -fsSL "$BURL" -o /tmp/bore.tar.gz && tar -xzf /tmp/bore.tar.gz -C /tmp; then
+            nohup /tmp/bore local 22 --to bore.pub >/tmp/bore.log 2>&1 &
+            for _ in $(seq 1 40); do
+              ADDR="$(grep -oE 'bore\.pub:[0-9]+' /tmp/bore.log 2>/dev/null | head -1)"
+              if [ -n "$ADDR" ]; then break; fi
+              sleep 1
+            done
+            if [ -n "${ADDR:-}" ]; then
+              HOST="${ADDR%%:*}"; PORT="${ADDR##*:}"
+            fi
+          else
+            echo "::warning::bore 下载失败"
+          fi
+        fi
+
+        if [ -z "$PORT" ]; then
+          echo "::error::SSH 隧道建立失败"
+          tail -n 30 /tmp/ngrok.log /tmp/bore.log 2>/dev/null
+          exit 1
+        fi
+
+        cat <<EOF2
+
+        ================= 连接信息 =================
+        断点：${LABEL}
+        命令：ssh -p ${PORT} runner@${HOST}
+        密码：${PASS}
+        超时：${TIMEOUT_MIN} 分钟后自动继续
+
+        cd ${GITHUB_WORKSPACE}/openwrt                  # 源码 / .config
+        ls ${GITHUB_WORKSPACE}/openwrt/bin/targets/*/*  # 固件产物
+        看完执行： touch /tmp/continue
+        ============================================
+        EOF2
+
+        # 3) 阻塞等待，直到手动放行或超时
+        WAITED=0
+        while [ "$WAITED" -lt "$((TIMEOUT_MIN * 60))" ]; do
+          if [ -f /tmp/continue ]; then
+            echo "收到 /tmp/continue，继续执行"
+            break
+          fi
+          sleep 5
+          WAITED=$((WAITED + 5))
+        done
+        if [ ! -f /tmp/continue ]; then
+          echo "等待超时（${TIMEOUT_MIN} 分钟），自动继续"
+        fi
+
+        # 4) 收尾
+        pkill -f 'ngrok tcp' 2>/dev/null
+        pkill -f 'bore local' 2>/dev/null
+        rm -f /tmp/continue
 
     - name: Compile the firmware
       id: compile
@@ -298,13 +419,134 @@ jobs:
     # 放在上传/部署之前，保证固件产物仍在 runner 本地可供查看
     - name: SSH 在线查看（Organize files 之后）
       if: ${{ !cancelled() && (inputs.ssh_after_organize || contains(github.event.action || '', 'sshpost')) }}
-      uses: ./.github/actions/ssh-gate
       timeout-minutes: 150
-      with:
-        label: '整理文件后：bin/targets/ramips/mt7621 已生成'
-        timeout-minutes: ${{ inputs.ssh_timeout || '60' }}
-        ssh-password: ${{ secrets.SSH_PASSWORD }}
-        ngrok-authtoken: ${{ secrets.NGROK_AUTHTOKEN }}
+      env:
+        GATE_LABEL: '整理文件后：bin/targets/ramips/mt7621 已生成'
+        GATE_TIMEOUT: ${{ inputs.ssh_timeout || '60' }}
+        GATE_PASSWORD: ${{ secrets.SSH_PASSWORD }}
+        NGROK_AUTHTOKEN: ${{ secrets.NGROK_AUTHTOKEN }}
+      run: |
+        # 关掉 -e：下面的探测逻辑靠空值判断，不能让某条命令的非零退出码掀桌子
+        set +eu
+        LABEL="${GATE_LABEL:-SSH 断点}"
+        TIMEOUT_MIN="${GATE_TIMEOUT:-60}"
+        case "$TIMEOUT_MIN" in ''|*[!0-9]*) TIMEOUT_MIN=60 ;; esac
+
+        echo "=========== SSH 断点：${LABEL} ==========="
+
+        PASS="${GATE_PASSWORD}"
+        if [ -z "$PASS" ]; then
+          PASS="$(tr -dc 'A-Za-z0-9' </dev/urandom 2>/dev/null | head -c 12)"
+          [ -n "$PASS" ] || PASS="kwrt$RANDOM$RANDOM"
+        fi
+
+        # 1) 启动 sshd
+        command -v sshd >/dev/null 2>&1 || {
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq openssh-server
+        }
+        echo "runner:${PASS}" | sudo chpasswd
+        sudo sed -i \
+          -e 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' \
+          -e 's/^#\?KbdInteractiveAuthentication.*/KbdInteractiveAuthentication yes/' \
+          -e 's/^#\?UsePAM.*/UsePAM yes/' \
+          -e 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
+        # 镜像自带的 sshd_config.d/*.conf 里可能写着 PasswordAuthentication no；
+        # sshd 对同一项取「先读到的值」，用 00- 前缀的 drop-in 顶到最前面
+        sudo mkdir -p /etc/ssh/sshd_config.d
+        printf '%s\n' \
+          'PasswordAuthentication yes' \
+          'KbdInteractiveAuthentication yes' \
+          'UsePAM yes' \
+          'PermitRootLogin yes' \
+          | sudo tee /etc/ssh/sshd_config.d/00-ssh-gate.conf >/dev/null
+        echo 'runner ALL=(ALL) NOPASSWD:ALL' | sudo tee /etc/sudoers.d/90-ssh-gate >/dev/null
+        sudo chmod 440 /etc/sudoers.d/90-ssh-gate
+        sudo systemctl restart ssh 2>/dev/null || sudo service ssh restart
+        sleep 2
+        if ! (ss -ltn 2>/dev/null || netstat -ltn 2>/dev/null) | grep -q ':22 '; then
+          echo "::error::sshd 没有监听 22 端口"
+          exit 1
+        fi
+
+        # 2) 打隧道：有 NGROK_AUTHTOKEN 走 ngrok，否则退回免注册的 bore.pub
+        HOST=""
+        PORT=""
+        if [ -n "${NGROK_AUTHTOKEN}" ]; then
+          echo "隧道：ngrok tcp 22"
+          if curl -fsSL -o /tmp/ngrok.tgz "https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz"; then
+            sudo tar -xzf /tmp/ngrok.tgz -C /usr/local/bin
+            ngrok config add-authtoken "${NGROK_AUTHTOKEN}" >/dev/null 2>&1
+            nohup ngrok tcp 22 --log=stdout --log-format=logfmt >/tmp/ngrok.log 2>&1 &
+            for _ in $(seq 1 40); do
+              URL="$(grep -oE 'url=tcp://[^ ]+' /tmp/ngrok.log 2>/dev/null | head -1 | sed 's/^url=//')"
+              if [ -n "$URL" ]; then break; fi
+              sleep 1
+            done
+            if [ -n "${URL:-}" ]; then
+              HOST="${URL#tcp://}"; HOST="${HOST%%:*}"; PORT="${URL##*:}"
+            fi
+          else
+            echo "::warning::ngrok 下载失败，改用 bore.pub"
+          fi
+        fi
+
+        if [ -z "$PORT" ]; then
+          echo "隧道：bore.pub"
+          BURL="$(curl -fsSL https://api.github.com/repos/ekzhang/bore/releases/latest | grep -oE 'https://[^"]+x86_64-unknown-linux-musl\.tar\.gz' | head -1)"
+          if [ -n "$BURL" ] && curl -fsSL "$BURL" -o /tmp/bore.tar.gz && tar -xzf /tmp/bore.tar.gz -C /tmp; then
+            nohup /tmp/bore local 22 --to bore.pub >/tmp/bore.log 2>&1 &
+            for _ in $(seq 1 40); do
+              ADDR="$(grep -oE 'bore\.pub:[0-9]+' /tmp/bore.log 2>/dev/null | head -1)"
+              if [ -n "$ADDR" ]; then break; fi
+              sleep 1
+            done
+            if [ -n "${ADDR:-}" ]; then
+              HOST="${ADDR%%:*}"; PORT="${ADDR##*:}"
+            fi
+          else
+            echo "::warning::bore 下载失败"
+          fi
+        fi
+
+        if [ -z "$PORT" ]; then
+          echo "::error::SSH 隧道建立失败"
+          tail -n 30 /tmp/ngrok.log /tmp/bore.log 2>/dev/null
+          exit 1
+        fi
+
+        cat <<EOF2
+
+        ================= 连接信息 =================
+        断点：${LABEL}
+        命令：ssh -p ${PORT} runner@${HOST}
+        密码：${PASS}
+        超时：${TIMEOUT_MIN} 分钟后自动继续
+
+        cd ${GITHUB_WORKSPACE}/openwrt                  # 源码 / .config
+        ls ${GITHUB_WORKSPACE}/openwrt/bin/targets/*/*  # 固件产物
+        看完执行： touch /tmp/continue
+        ============================================
+        EOF2
+
+        # 3) 阻塞等待，直到手动放行或超时
+        WAITED=0
+        while [ "$WAITED" -lt "$((TIMEOUT_MIN * 60))" ]; do
+          if [ -f /tmp/continue ]; then
+            echo "收到 /tmp/continue，继续执行"
+            break
+          fi
+          sleep 5
+          WAITED=$((WAITED + 5))
+        done
+        if [ ! -f /tmp/continue ]; then
+          echo "等待超时（${TIMEOUT_MIN} 分钟），自动继续"
+        fi
+
+        # 4) 收尾
+        pkill -f 'ngrok tcp' 2>/dev/null
+        pkill -f 'bore local' 2>/dev/null
+        rm -f /tmp/continue
 
     - name: Deploy imagebuilder to server
       uses: easingthemes/ssh-deploy@main
