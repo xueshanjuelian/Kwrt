@@ -18,17 +18,17 @@ on:
         required: true
         default: 'ramips_mt7621'
       ssh_before_compile:
-        description: 'Compile the firmware 之前开启 SSH 在线查看'
+        description: 'Compile the firmware 之前开启 SSH 在线查看（需先配置 SSH_PASSWORD）'
         type: boolean
-        default: true
+        default: false
       ssh_after_organize:
-        description: 'Organize files 之后开启 SSH 在线查看'
+        description: 'Organize files 之后开启 SSH 在线查看（需先配置 SSH_PASSWORD）'
         type: boolean
-        default: true
+        default: false
       ssh_timeout:
-        description: '每个 SSH 断点最长等待时间（分钟）'
+        description: '每个 SSH 断点最长等待时间（分钟，默认 15，够看 .config 和产物）'
         type: string
-        default: '60'
+        default: '15'
 
 env:
   REPO_TOKEN: ${{ secrets.TOKEN_KIDDIN9 }}
@@ -262,26 +262,41 @@ jobs:
 
     # ===== SSH 断点 1/2：Compile the firmware 之前 =====
     - name: SSH 在线查看（Compile the firmware 之前）
-      if: ${{ inputs.ssh_before_compile || contains(github.event.action || '', 'sshpre') || (contains(github.event.action || '', 'ssh') && !contains(github.event.action || '', 'sshpost')) }}
-      timeout-minutes: 150
+      # 只有仓库所有者触发时才允许开断点
+      if: ${{ github.actor == github.repository_owner && (inputs.ssh_before_compile || contains(github.event.action || '', 'sshpre') || (contains(github.event.action || '', 'ssh') && !contains(github.event.action || '', 'sshpost'))) }}
+      timeout-minutes: 60
       env:
         GATE_LABEL: '编译前：源码/feeds/.config 已就绪，make 尚未开始'
-        GATE_TIMEOUT: ${{ inputs.ssh_timeout || '60' }}
+        GATE_TIMEOUT: ${{ inputs.ssh_timeout || '15' }}
         GATE_PASSWORD: ${{ secrets.SSH_PASSWORD }}
         NGROK_AUTHTOKEN: ${{ secrets.NGROK_AUTHTOKEN }}
+        REPO_TOKEN: ''
       run: |
         # 关掉 -e：下面的探测逻辑靠空值判断，不能让某条命令的非零退出码掀桌子
         set +eu
         LABEL="${GATE_LABEL:-SSH 断点}"
-        TIMEOUT_MIN="${GATE_TIMEOUT:-60}"
-        case "$TIMEOUT_MIN" in ''|*[!0-9]*) TIMEOUT_MIN=60 ;; esac
+        TIMEOUT_MIN="${GATE_TIMEOUT:-15}"
+        case "$TIMEOUT_MIN" in ''|*[!0-9]*) TIMEOUT_MIN=15 ;; esac
 
         echo "=========== SSH 断点：${LABEL} ==========="
 
+        # 密码只认 secret：随机生成的密码一旦打印到日志，等于把登录凭据公开
         PASS="${GATE_PASSWORD}"
-        if [ -z "$PASS" ]; then
-          PASS="$(tr -dc 'A-Za-z0-9' </dev/urandom 2>/dev/null | head -c 12)"
-          [ -n "$PASS" ] || PASS="kwrt$RANDOM$RANDOM"
+        if [ -z "$PASS" ] || [ "${#PASS}" -lt 12 ]; then
+          echo "::error::未配置 secrets.SSH_PASSWORD（或长度不足 12 位），已拒绝开启 SSH 断点"
+          echo "::error::请在 Settings -> Secrets and variables -> Actions 添加 SSH_PASSWORD（建议 16 位以上随机串）后重跑"
+          exit 1
+        fi
+
+        # 0) 对外开端口之前，先把工作区里的凭据擦干净
+        for f in "$GITHUB_WORKSPACE/devices/common/diy.sh" "$GITHUB_WORKSPACE/openwrt/diy.sh" "$GITHUB_WORKSPACE/openwrt/devices/common/diy.sh"; do
+          if [ -f "$f" ] && grep -q '^REPO_TOKEN=' "$f"; then
+            sudo sed -i '/^REPO_TOKEN=/d' "$f"
+            echo "已擦除 $f 中的 REPO_TOKEN"
+          fi
+        done
+        if git -C "$GITHUB_WORKSPACE" config --unset-all http.https://github.com/.extraheader 2>/dev/null; then
+          echo "已清除 .git/config 里持久化的 GITHUB_TOKEN"
         fi
 
         # 1) 启动 sshd
@@ -418,26 +433,40 @@ jobs:
     # ===== SSH 断点 2/2：Organize files 之后 =====
     # 放在上传/部署之前，保证固件产物仍在 runner 本地可供查看
     - name: SSH 在线查看（Organize files 之后）
-      if: ${{ !cancelled() && (inputs.ssh_after_organize || contains(github.event.action || '', 'sshpost')) }}
-      timeout-minutes: 150
+      if: ${{ !cancelled() && github.actor == github.repository_owner && (inputs.ssh_after_organize || contains(github.event.action || '', 'sshpost')) }}
+      timeout-minutes: 60
       env:
         GATE_LABEL: '整理文件后：bin/targets/ramips/mt7621 已生成'
-        GATE_TIMEOUT: ${{ inputs.ssh_timeout || '60' }}
+        GATE_TIMEOUT: ${{ inputs.ssh_timeout || '15' }}
         GATE_PASSWORD: ${{ secrets.SSH_PASSWORD }}
         NGROK_AUTHTOKEN: ${{ secrets.NGROK_AUTHTOKEN }}
+        REPO_TOKEN: ''
       run: |
         # 关掉 -e：下面的探测逻辑靠空值判断，不能让某条命令的非零退出码掀桌子
         set +eu
         LABEL="${GATE_LABEL:-SSH 断点}"
-        TIMEOUT_MIN="${GATE_TIMEOUT:-60}"
-        case "$TIMEOUT_MIN" in ''|*[!0-9]*) TIMEOUT_MIN=60 ;; esac
+        TIMEOUT_MIN="${GATE_TIMEOUT:-15}"
+        case "$TIMEOUT_MIN" in ''|*[!0-9]*) TIMEOUT_MIN=15 ;; esac
 
         echo "=========== SSH 断点：${LABEL} ==========="
 
+        # 密码只认 secret：随机生成的密码一旦打印到日志，等于把登录凭据公开
         PASS="${GATE_PASSWORD}"
-        if [ -z "$PASS" ]; then
-          PASS="$(tr -dc 'A-Za-z0-9' </dev/urandom 2>/dev/null | head -c 12)"
-          [ -n "$PASS" ] || PASS="kwrt$RANDOM$RANDOM"
+        if [ -z "$PASS" ] || [ "${#PASS}" -lt 12 ]; then
+          echo "::error::未配置 secrets.SSH_PASSWORD（或长度不足 12 位），已拒绝开启 SSH 断点"
+          echo "::error::请在 Settings -> Secrets and variables -> Actions 添加 SSH_PASSWORD（建议 16 位以上随机串）后重跑"
+          exit 1
+        fi
+
+        # 0) 对外开端口之前，先把工作区里的凭据擦干净
+        for f in "$GITHUB_WORKSPACE/devices/common/diy.sh" "$GITHUB_WORKSPACE/openwrt/diy.sh" "$GITHUB_WORKSPACE/openwrt/devices/common/diy.sh"; do
+          if [ -f "$f" ] && grep -q '^REPO_TOKEN=' "$f"; then
+            sudo sed -i '/^REPO_TOKEN=/d' "$f"
+            echo "已擦除 $f 中的 REPO_TOKEN"
+          fi
+        done
+        if git -C "$GITHUB_WORKSPACE" config --unset-all http.https://github.com/.extraheader 2>/dev/null; then
+          echo "已清除 .git/config 里持久化的 GITHUB_TOKEN"
         fi
 
         # 1) 启动 sshd
