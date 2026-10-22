@@ -8,8 +8,27 @@
 
 name: Build OpenWrt
 
-on: 
+on:
   repository_dispatch:
+  # 手动触发：仓库 Actions 页面 -> Run workflow
+  workflow_dispatch:
+    inputs:
+      target:
+        description: '编译目标（devices/ 下的目录名）'
+        required: true
+        default: 'ramips_mt7621'
+      ssh_before_compile:
+        description: 'Compile the firmware 之前开启 SSH 在线查看'
+        type: boolean
+        default: true
+      ssh_after_organize:
+        description: 'Organize files 之后开启 SSH 在线查看'
+        type: boolean
+        default: true
+      ssh_timeout:
+        description: '每个 SSH 断点最长等待时间（分钟）'
+        type: string
+        default: '60'
 
 env:
   REPO_TOKEN: ${{ secrets.TOKEN_KIDDIN9 }}
@@ -31,7 +50,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: ["${{ github.event.client_payload.target }}"]
+        target: ["${{ github.event.client_payload.target || inputs.target }}"]
         
     steps:
     - name: Checkout
@@ -222,9 +241,33 @@ jobs:
         clean: ${{ contains(github.event.action, 'nocache') }}
         prefix: ${{ github.workspace }}/openwrt
 
-    - name: SSH connection to Actions
-      uses: kiddin9/debugger-action@master
-      if: contains(github.event.action, 'ssh')
+    # 只允许 CR660X：Defconfig 之后立刻校验，选错则立即失败，避免误编上百个设备
+    - name: Verify target (Xiaomi CR660X only)
+      run: |
+        cd openwrt
+        echo "=== 最终 .config 中选中的设备 ==="
+        grep -E '^CONFIG_TARGET.*DEVICE.*=y' .config || true
+        if ! grep -qE '^CONFIG_TARGET_DEVICE_ramips_mt7621_DEVICE_xiaomi_mi-router-cr660x=y' .config; then
+          echo "::error::未选中 xiaomi_mi-router-cr660x，请检查 devices/ramips_mt7621/.config"
+          exit 1
+        fi
+        CNT=$(grep -cE '^CONFIG_TARGET.*DEVICE.*=y' .config)
+        if [ "$CNT" -ne 1 ]; then
+          echo "::error::仍然选中了 $CNT 个设备，本次只允许 CR660X"
+          exit 1
+        fi
+        echo "OK: 只编译 xiaomi_mi-router-cr660x"
+
+    # ===== SSH 断点 1/2：Compile the firmware 之前 =====
+    - name: SSH 在线查看（Compile the firmware 之前）
+      if: ${{ inputs.ssh_before_compile || contains(github.event.action || '', 'sshpre') || (contains(github.event.action || '', 'ssh') && !contains(github.event.action || '', 'sshpost')) }}
+      uses: ./.github/actions/ssh-gate
+      timeout-minutes: 150
+      with:
+        label: '编译前：源码/feeds/.config 已就绪，make 尚未开始'
+        timeout-minutes: ${{ inputs.ssh_timeout || '60' }}
+        ssh-password: ${{ secrets.SSH_PASSWORD }}
+        ngrok-authtoken: ${{ secrets.NGROK_AUTHTOKEN }}
 
     - name: Compile the firmware
       id: compile
@@ -248,6 +291,18 @@ jobs:
         cp $GITHUB_WORKSPACE/openwrt/build_dir/target-*/linux-*/linux-*/.config ${{matrix.target}}_kernel.config || true
         Emoji=("🎉" "🤞" "✨" "🎁" "🎈" "🎄" "🎨" "💋" "🍓" "🍕" "🍉" "💐" "🌴" "🚀" "🛸" "🗽" "⛅" "🌈" "🔥" "⛄" "🐶" "🏅" "🦄" "🐤")
         echo "EMOJI=${Emoji[$[$RANDOM % ${#Emoji[@]}]]}" >> $GITHUB_ENV
+
+    # ===== SSH 断点 2/2：Organize files 之后 =====
+    # 放在上传/部署之前，保证固件产物仍在 runner 本地可供查看
+    - name: SSH 在线查看（Organize files 之后）
+      if: ${{ !cancelled() && (inputs.ssh_after_organize || contains(github.event.action || '', 'sshpost')) }}
+      uses: ./.github/actions/ssh-gate
+      timeout-minutes: 150
+      with:
+        label: '整理文件后：bin/targets/ramips/mt7621 已生成'
+        timeout-minutes: ${{ inputs.ssh_timeout || '60' }}
+        ssh-password: ${{ secrets.SSH_PASSWORD }}
+        ngrok-authtoken: ${{ secrets.NGROK_AUTHTOKEN }}
 
     - name: Deploy imagebuilder to server
       uses: easingthemes/ssh-deploy@main
