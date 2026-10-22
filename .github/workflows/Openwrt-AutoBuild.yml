@@ -246,12 +246,14 @@ jobs:
       run: |
         cd openwrt
         echo "=== 最终 .config 中选中的设备 ==="
-        grep -E '^CONFIG_TARGET.*DEVICE.*=y' .config || true
+        # 注意：必须用 ^CONFIG_TARGET_DEVICE_ 前缀，
+        # 否则 CONFIG_TARGET_PER_DEVICE_ROOTFS=y 也会被当成一个设备
+        grep -E '^CONFIG_TARGET_DEVICE_.*=y' .config || true
         if ! grep -qE '^CONFIG_TARGET_DEVICE_ramips_mt7621_DEVICE_xiaomi_mi-router-cr660x=y' .config; then
           echo "::error::未选中 xiaomi_mi-router-cr660x，请检查 devices/ramips_mt7621/.config"
           exit 1
         fi
-        CNT=$(grep -cE '^CONFIG_TARGET.*DEVICE.*=y' .config)
+        CNT=$(grep -cE '^CONFIG_TARGET_DEVICE_.*=y' .config)
         if [ "$CNT" -ne 1 ]; then
           echo "::error::仍然选中了 $CNT 个设备，本次只允许 CR660X"
           exit 1
